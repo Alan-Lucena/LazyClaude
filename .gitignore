@@ -1,0 +1,8 @@
+# Compiled binaries
+permission-popup
+claude-menubar
+*.o
+*.d
+
+# macOS
+.DS_Store
