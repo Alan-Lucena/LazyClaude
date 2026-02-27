@@ -1,32 +1,52 @@
+<div align="center">
+
 # LazyClaude
 
-Auto-accept permission manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS. A menu bar app that lets you auto-approve all Claude Code permission requests and auto-respond to questions with one click.
+**Stop babysitting Claude Code. Let it cook.**
+
+[![macOS](https://img.shields.io/badge/macOS-12%2B-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![Swift](https://img.shields.io/badge/Swift-Cocoa-F05138?logo=swift&logoColor=white)](https://developer.apple.com/swift/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+A native macOS menu bar app that auto-approves Claude Code permission requests and auto-responds to its questions — so you can focus on what matters instead of clicking "Allow" all day.
+
+</div>
+
+---
+
+## The Problem
+
+Claude Code asks for permission **constantly**. Every file edit, every bash command, every tool call — "Allow?" "Allow?" "Allow?". If you trust what Claude is doing, those prompts are just noise slowing you down.
+
+## The Solution
+
+LazyClaude sits in your menu bar and handles all that for you. One toggle, zero interruptions.
 
 ## Features
 
-- **Menu bar toggle** with an iOS-style switch to enable/disable auto-accept
-- **Safe mode** — auto-accepts everything except plan approvals (`ExitPlanMode`)
-- **YOLO mode** — auto-accepts absolutely everything, no exceptions
-- **Auto-response** — auto-answers Claude's questions (`AskUserQuestion`) with a pre-configured text
-- **Auto-start** via LaunchAgent — starts on login
+- **Safe Mode** — Auto-approves everything *except* plan approvals. You still review the big decisions.
+- **YOLO Mode** — Auto-approves absolutely everything. No exceptions. No interruptions. Full send.
+- **Auto-Response** — Automatically answers Claude's questions with your pre-configured text (e.g. *"proceed with the recommended option"*).
+- **Auto-Start** — Launches on login via LaunchAgent. Set it and forget it.
+- **Native macOS** — Pure Swift/Cocoa menu bar app. No Electron, no web views, no bloat.
 
-## Requirements
+## Quick Start
+
+### Requirements
 
 - macOS 12+ (Monterey or later)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed
 - Xcode Command Line Tools (`xcode-select --install`)
-- Python 3 (included with Xcode CLI Tools)
 
-## Install
+### Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/lazy-claude.git
-cd lazy-claude
-chmod +x install.sh
+git clone https://github.com/Alan-Lucena/LazyClaude.git
+cd LazyClaude
 ./install.sh
 ```
 
-Then add the hook to your `~/.claude/settings.json`:
+Then add the hook to `~/.claude/settings.json`:
 
 ```json
 {
@@ -46,56 +66,44 @@ Then add the hook to your `~/.claude/settings.json`:
 }
 ```
 
-> **Tip:** Add `"defaultMode": "acceptEdits"` inside `"permissions"` to auto-accept file edits and only get prompts for Bash and other tools.
+> **Tip:** Add `"defaultMode": "acceptEdits"` inside `"permissions"` to also auto-accept file edits natively.
 
-## Uninstall
+### Uninstall
 
 ```bash
-chmod +x uninstall.sh
 ./uninstall.sh
 ```
 
-Then remove the `PermissionRequest` hook from your `~/.claude/settings.json`.
+Then remove the `PermissionRequest` hook from `~/.claude/settings.json`.
 
-## How it works
+## Usage
 
-### Menu bar app
+A bolt icon in your menu bar shows the current state:
 
-A bolt icon lives in your menu bar:
+| Icon | State | Behavior |
+|:----:|-------|----------|
+| `bolt.circle` | **OFF** | Claude Code shows normal permission prompts |
+| `bolt.circle.fill` | **Safe** | Auto-accepts all except plan approvals |
+| `bolt.trianglebadge.exclamationmark` | **YOLO** | Auto-accepts everything, no exceptions |
 
-| Icon | State |
-|------|-------|
-| `bolt.circle` | **OFF** — Claude Code shows its normal permission prompts |
-| `bolt.circle.fill` | **Safe mode** — auto-accepts all except plan approvals |
-| `bolt.trianglebadge.exclamationmark` | **YOLO mode** — auto-accepts everything, no exceptions |
+Click the icon to toggle, switch modes, and configure auto-response.
 
-Click the icon to toggle auto-accept, choose your mode, and configure auto-response.
+## How It Works
 
-### Modes
-
-- **Safe mode** (default) — Auto-approves all permission requests except `ExitPlanMode`. Plans always require your manual approval.
-- **YOLO mode** — Auto-approves everything including plan approvals. Zero interruptions.
-
-### Auto-response
-
-When enabled, Claude's questions (`AskUserQuestion`) are automatically answered with your pre-configured text. Click the response text in the menu to edit it.
-
-This is useful when you want Claude to always proceed with a specific approach (e.g., "proceed with the recommended option") without asking you.
-
-> **Note:** Auto-response uses an experimental workaround. It may stop working in a future Claude Code update, but won't break anything if it does.
-
-### Architecture
+LazyClaude hooks into Claude Code's [PermissionRequest](https://docs.anthropic.com/en/docs/claude-code/hooks) system. When Claude asks for permission, the hook script checks your configuration and responds automatically — no UI interaction needed.
 
 ```
 ~/.claude/hooks/
-  autoaccept-hook        # Python script — handles permissions and auto-response
-  lazy-claude            # Compiled binary — menu bar toggle app
-  .lazyclaude            # Config file — contains mode ("safe" or "yolo"), absent = OFF
-  .lazyclaude-response   # Response file — contains auto-response text, absent = OFF
+  autoaccept-hook          # Python hook — intercepts and auto-approves requests
+  lazy-claude              # Swift binary — menu bar app
+  .lazyclaude              # Config — current mode (safe/yolo), absent = OFF
+  .lazyclaude-response     # Config — auto-response text, absent = OFF
 
 ~/Library/LaunchAgents/
-  com.lazy-claude.menubar.plist  # Auto-start menu bar on login
+  com.lazy-claude.menubar.plist   # Starts on login
 ```
+
+> **Note:** Auto-response uses an experimental hook workaround. It may stop working in a future Claude Code update, but won't break anything if it does.
 
 ## License
 
