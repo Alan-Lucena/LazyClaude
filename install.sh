@@ -3,19 +3,21 @@ set -e
 
 HOOKS_DIR="$HOME/.claude/hooks"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
-PLIST_NAME="com.claude-flow.menubar.plist"
+PLIST_NAME="com.lazy-claude.menubar.plist"
 
-echo "==> Installing Claude Flow..."
+echo "==> Installing LazyClaude..."
 
 # Create hooks directory
 mkdir -p "$HOOKS_DIR"
 
-# Compile binaries
-echo "==> Compiling permission popup..."
-swiftc -O -o "$HOOKS_DIR/permission-popup" "$(dirname "$0")/src/PermissionPopup.swift" -framework Cocoa
+# Install auto-accept hook
+echo "==> Installing auto-accept hook..."
+cp "$(dirname "$0")/src/autoaccept-hook.py" "$HOOKS_DIR/autoaccept-hook"
+chmod +x "$HOOKS_DIR/autoaccept-hook"
 
+# Compile menu bar app
 echo "==> Compiling menu bar app..."
-swiftc -O -o "$HOOKS_DIR/claude-menubar" "$(dirname "$0")/src/ClaudeMenuBar.swift" -framework Cocoa
+swiftc -O -o "$HOOKS_DIR/lazy-claude" "$(dirname "$0")/src/LazyClaude.swift" -framework Cocoa
 
 # Install LaunchAgent
 echo "==> Installing LaunchAgent..."
@@ -26,10 +28,10 @@ cat > "$LAUNCH_AGENTS_DIR/$PLIST_NAME" <<EOF
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.claude-flow.menubar</string>
+    <string>com.lazy-claude.menubar</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${HOOKS_DIR}/claude-menubar</string>
+        <string>${HOOKS_DIR}/lazy-claude</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -50,7 +52,7 @@ fi
 if grep -q "PermissionRequest" "$SETTINGS_FILE" 2>/dev/null; then
     echo ""
     echo "==> PermissionRequest hook already exists in $SETTINGS_FILE"
-    echo "    Please verify it points to: $HOOKS_DIR/permission-popup"
+    echo "    Please verify it points to: $HOOKS_DIR/autoaccept-hook"
 else
     echo ""
     echo "==> Add this to your $SETTINGS_FILE under \"hooks\":"
@@ -61,7 +63,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "${HOOKS_DIR}/permission-popup",
+            "command": "${HOOKS_DIR}/autoaccept-hook",
             "timeout": 130
           }
         ]
@@ -77,10 +79,11 @@ launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_NAME" 2>/dev/null || true
 launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
 
 echo ""
-echo "==> Claude Flow installed successfully!"
+echo "==> LazyClaude installed successfully!"
 echo ""
-echo "   - Permission popup: $HOOKS_DIR/permission-popup"
-echo "   - Menu bar app:     $HOOKS_DIR/claude-menubar"
+echo "   - Auto-accept hook: $HOOKS_DIR/autoaccept-hook"
+echo "   - Menu bar app:     $HOOKS_DIR/lazy-claude"
+echo "   - Config file:      $HOOKS_DIR/.lazyclaude"
 echo "   - LaunchAgent:      $LAUNCH_AGENTS_DIR/$PLIST_NAME"
 echo ""
 echo "   You should see a bolt icon in your menu bar."

@@ -1,28 +1,27 @@
-# Claude Flow
+# LazyClaude
 
-Native macOS permission manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Replaces the default VSCode/terminal permission prompts with native macOS popups that appear on top of all windows, so you can approve or deny from anywhere.
+Auto-accept permission manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS. A menu bar app that lets you auto-approve all Claude Code permission requests and auto-respond to questions with one click.
 
 ## Features
 
-- **Native macOS popup** for every permission request (Bash, Edit, Write, etc.) — no need to switch to VSCode
-- **Menu bar toggle** with an iOS-style switch to auto-accept all permissions with one click
-- **"Allow All" button** in the popup to enable auto-accept on the fly
-- **Plan mode protection** — `ExitPlanMode` always requires manual approval, even with auto-accept on
-- **Keyboard shortcuts** — Enter to allow, Escape to deny
-- **Smart detail display** — shows commands, file paths, or URLs depending on the tool type
-- **Auto-start** via LaunchAgent — menu bar app starts on login
+- **Menu bar toggle** with an iOS-style switch to enable/disable auto-accept
+- **Safe mode** — auto-accepts everything except plan approvals (`ExitPlanMode`)
+- **YOLO mode** — auto-accepts absolutely everything, no exceptions
+- **Auto-response** — auto-answers Claude's questions (`AskUserQuestion`) with a pre-configured text
+- **Auto-start** via LaunchAgent — starts on login
 
 ## Requirements
 
 - macOS 12+ (Monterey or later)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed
 - Xcode Command Line Tools (`xcode-select --install`)
+- Python 3 (included with Xcode CLI Tools)
 
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-flow.git
-cd claude-flow
+git clone https://github.com/YOUR_USERNAME/lazy-claude.git
+cd lazy-claude
 chmod +x install.sh
 ./install.sh
 ```
@@ -37,7 +36,7 @@ Then add the hook to your `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/permission-popup",
+            "command": "~/.claude/hooks/autoaccept-hook",
             "timeout": 130
           }
         ]
@@ -47,7 +46,7 @@ Then add the hook to your `~/.claude/settings.json`:
 }
 ```
 
-> **Tip:** Add `"defaultMode": "acceptEdits"` inside `"permissions"` to auto-accept file edits and only get popups for Bash and other tools.
+> **Tip:** Add `"defaultMode": "acceptEdits"` inside `"permissions"` to auto-accept file edits and only get prompts for Bash and other tools.
 
 ## Uninstall
 
@@ -60,80 +59,42 @@ Then remove the `PermissionRequest` hook from your `~/.claude/settings.json`.
 
 ## How it works
 
-### Permission popup
-
-When Claude Code requests any permission, a native macOS dialog appears on top of all windows:
-
-- **Allow** (Enter) — approve this specific request
-- **Deny** (Escape) — reject this request
-- **Allow All** — approve this request AND enable auto-accept for all future requests
-
-The popup shows the tool name and the relevant detail (command for Bash, file path for Edit/Write, URL for WebFetch, etc.).
-
 ### Menu bar app
 
 A bolt icon lives in your menu bar:
 
 | Icon | State |
 |------|-------|
-| `bolt.circle` | Auto-accept **OFF** — popups appear for every request |
-| `bolt.circle.fill` | Auto-accept **ON** — all requests auto-approved silently |
+| `bolt.circle` | **OFF** — Claude Code shows its normal permission prompts |
+| `bolt.circle.fill` | **Safe mode** — auto-accepts all except plan approvals |
+| `bolt.trianglebadge.exclamationmark` | **YOLO mode** — auto-accepts everything, no exceptions |
 
-Click the icon to toggle auto-accept with an iOS-style switch.
+Click the icon to toggle auto-accept, choose your mode, and configure auto-response.
+
+### Modes
+
+- **Safe mode** (default) — Auto-approves all permission requests except `ExitPlanMode`. Plans always require your manual approval.
+- **YOLO mode** — Auto-approves everything including plan approvals. Zero interruptions.
+
+### Auto-response
+
+When enabled, Claude's questions (`AskUserQuestion`) are automatically answered with your pre-configured text. Click the response text in the menu to edit it.
+
+This is useful when you want Claude to always proceed with a specific approach (e.g., "proceed with the recommended option") without asking you.
+
+> **Note:** Auto-response uses an experimental workaround. It may stop working in a future Claude Code update, but won't break anything if it does.
 
 ### Architecture
 
 ```
 ~/.claude/hooks/
-  permission-popup     # Compiled binary — handles permission popups
-  claude-menubar       # Compiled binary — menu bar toggle app
-  .autoaccept          # Flag file — exists = auto-accept ON
+  autoaccept-hook        # Python script — handles permissions and auto-response
+  lazy-claude            # Compiled binary — menu bar toggle app
+  .lazyclaude            # Config file — contains mode ("safe" or "yolo"), absent = OFF
+  .lazyclaude-response   # Response file — contains auto-response text, absent = OFF
 
 ~/Library/LaunchAgents/
-  com.claude-flow.menubar.plist  # Auto-start menu bar on login
-```
-
-The popup binary checks for the `.autoaccept` flag file. If it exists, permissions are auto-approved. If not, the native dialog is shown. The menu bar app creates/deletes this file when you toggle.
-
-`ExitPlanMode` is excluded from auto-accept — plans always require manual approval.
-
-## Configuration
-
-### Limit to Bash only
-
-If you only want the popup for Bash commands (and let Claude Code handle edits normally):
-
-```json
-{
-  "hooks": {
-    "PermissionRequest": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/permission-popup",
-            "timeout": 130
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### Add more exclusions
-
-Edit `src/PermissionPopup.swift` and add tool names to the skip list:
-
-```swift
-let skipAutoAccept = ["ExitPlanMode", "AnotherTool"].contains(toolName)
-```
-
-Then recompile:
-
-```bash
-swiftc -O -o ~/.claude/hooks/permission-popup src/PermissionPopup.swift -framework Cocoa
+  com.lazy-claude.menubar.plist  # Auto-start menu bar on login
 ```
 
 ## License

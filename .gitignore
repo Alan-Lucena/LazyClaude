@@ -1,6 +1,5 @@
 # Compiled binaries
-permission-popup
-claude-menubar
+lazy-claude
 *.o
 *.d
 
