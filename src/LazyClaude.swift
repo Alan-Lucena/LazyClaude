@@ -101,16 +101,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var yoloItem: NSMenuItem!
     var responseTextItem: NSMenuItem!
     var knownProjects: [ProjectInfo] = []
+    var cachedSessionProjects: [(String, String)] = []  // (path, name)
+    var cachedOpenNames: Set<String> = []
+    var refreshTimer: Timer?
     let configPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude"
     let responsePath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-response"
     let projectsConfigPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-projects"
     let knownProjectsPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-known-projects"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Pre-cache session projects (slow, only once)
+        cachedSessionProjects = discoverAllSessionProjects()
+        cachedOpenNames = getOpenVSCodeProjectNames()
         readConfig()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         updateIcon()
         buildMenu()
+
+        // Refresh open windows + session cache every 5 seconds in background
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.refreshProjectsInBackground()
+        }
+    }
+
+    func refreshProjectsInBackground() {
+        // File I/O in background
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let newSessions = self?.discoverAllSessionProjects() ?? []
+            DispatchQueue.main.async {
+                self?.cachedSessionProjects = newSessions
+                // AppleScript must run on main thread
+                self?.cachedOpenNames = self?.getOpenVSCodeProjectNames() ?? []
+            }
+        }
     }
 
     func readConfig() {
@@ -140,13 +163,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func readProjectsConfig() {
         knownProjects = []
 
-        // Read hook-discovered projects
-        var known: [String: [String: Any]] = [:]
-        if let data = FileManager.default.contents(atPath: knownProjectsPath),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] {
-            known = json
-        }
-
         // Read per-project overrides
         var overrides: [String: String] = [:]
         if let data = FileManager.default.contents(atPath: projectsConfigPath),
@@ -154,50 +170,87 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             overrides = json
         }
 
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        // Use cached data (refreshed every 5s in background)
+        let openNames = cachedOpenNames
 
-        for (path, info) in known {
-            let name = info["name"] as? String ?? (path as NSString).lastPathComponent
-            let lastSeenStr = info["last_seen"] as? String ?? ""
-            let lastSeen = formatter.date(from: lastSeenStr) ?? Date.distantPast
+        // Only show projects that have an open VS Code window
+        for (path, name) in cachedSessionProjects {
+            guard openNames.contains(name) else { continue }
+            guard !knownProjects.contains(where: { $0.path == path }) else { continue }
             let mode = overrides[path] ?? "global"
-
-            knownProjects.append(ProjectInfo(name: name, path: path, lastSeen: lastSeen, mode: mode))
+            knownProjects.append(ProjectInfo(name: name, path: path, lastSeen: Date(), mode: mode))
         }
 
-        for (path, mode) in overrides {
-            if !knownProjects.contains(where: { $0.path == path }) {
-                knownProjects.append(ProjectInfo(
-                    name: (path as NSString).lastPathComponent,
-                    path: path,
-                    lastSeen: Date.distantPast,
-                    mode: mode
-                ))
+        // Also include hook-discovered projects if they have an open window
+        if let data = FileManager.default.contents(atPath: knownProjectsPath),
+           let known = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] {
+            for (path, info) in known {
+                let name = info["name"] as? String ?? (path as NSString).lastPathComponent
+                guard openNames.contains(name) else { continue }
+                guard !knownProjects.contains(where: { $0.path == path }) else { continue }
+                let mode = overrides[path] ?? "global"
+                knownProjects.append(ProjectInfo(name: name, path: path, lastSeen: Date(), mode: mode))
             }
         }
 
-        // Discover projects from ~/.claude/projects/ session directories
-        discoverSessionProjects(overrides: overrides)
-
-        knownProjects.sort { $0.lastSeen > $1.lastSeen }
+        knownProjects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    func discoverSessionProjects(overrides: [String: String]) {
-        let sessionDir = NSHomeDirectory() + "/.claude/projects"
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: sessionDir) else { return }
+    func getOpenVSCodeProjectNames() -> Set<String> {
+        let script = """
+        set projectNames to {}
+        tell application "System Events"
+            repeat with procName in {"Code", "Code - Insiders", "Cursor"}
+                if exists (process procName) then
+                    tell process procName
+                        repeat with w in every window
+                            set end of projectNames to name of w
+                        end repeat
+                    end tell
+                end if
+            end repeat
+        end tell
+        return projectNames
+        """
 
+        guard let appleScript = NSAppleScript(source: script) else { return [] }
+        var error: NSDictionary?
+        let result = appleScript.executeAndReturnError(&error)
+        guard error == nil else { return [] }
+
+        var names: Set<String> = []
+        guard result.numberOfItems > 0 else { return names }
+        for i in 1...result.numberOfItems {
+            guard let title = result.atIndex(i)?.stringValue else { continue }
+            // VS Code titles: "filename — ProjectName" or just "ProjectName"
+            if let range = title.range(of: " \u{2014} ") {
+                var projectName = String(title[range.upperBound...])
+                // Remove suffixes like " [Extension Development Host]"
+                if let bracket = projectName.range(of: " [") {
+                    projectName = String(projectName[..<bracket.lowerBound])
+                }
+                names.insert(projectName)
+            } else {
+                names.insert(title)
+            }
+        }
+        return names
+    }
+
+    func discoverAllSessionProjects() -> [(String, String)] {
+        let sessionDir = NSHomeDirectory() + "/.claude/projects"
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: sessionDir) else { return [] }
+
+        var results: [(String, String)] = []
         for entry in entries {
             let entryPath = sessionDir + "/" + entry
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: entryPath, isDirectory: &isDir),
                   isDir.boolValue else { continue }
 
-            // Skip generic entries (root, home, etc.)
             let dashCount = entry.filter({ $0 == "-" }).count
             guard dashCount >= 3 else { continue }
 
-            // Find a .jsonl transcript to extract the real cwd
             guard let files = try? FileManager.default.contentsOfDirectory(atPath: entryPath) else { continue }
             let jsonlFiles = files.filter { $0.hasSuffix(".jsonl") }
             guard let firstFile = jsonlFiles.first else { continue }
@@ -206,7 +259,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let data = FileManager.default.contents(atPath: filePath),
                   let content = String(data: data, encoding: .utf8) else { continue }
 
-            // Read up to 10 lines looking for a "cwd" field
             var projectPath: String?
             for line in content.components(separatedBy: .newlines).prefix(10) {
                 guard let lineData = line.data(using: .utf8),
@@ -218,20 +270,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             guard let path = projectPath,
                   FileManager.default.fileExists(atPath: path),
-                  !knownProjects.contains(where: { $0.path == path }) else { continue }
+                  !results.contains(where: { $0.0 == path }) else { continue }
 
-            // Get modification date of the transcript as last_seen
-            let attrs = try? FileManager.default.attributesOfItem(atPath: filePath)
-            let lastSeen = attrs?[.modificationDate] as? Date ?? Date.distantPast
-            let mode = overrides[path] ?? "global"
-
-            knownProjects.append(ProjectInfo(
-                name: (path as NSString).lastPathComponent,
-                path: path,
-                lastSeen: lastSeen,
-                mode: mode
-            ))
+            let name = (path as NSString).lastPathComponent
+            results.append((path, name))
         }
+        return results
     }
 
     func writeProjectsConfig() {
@@ -328,17 +372,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     submenu.addItem(modeItem)
                 }
 
-                submenu.addItem(NSMenuItem.separator())
-
-                let removeItem = NSMenuItem(
-                    title: "Remove from list",
-                    action: #selector(removeProject(_:)),
-                    keyEquivalent: ""
-                )
-                removeItem.target = self
-                removeItem.representedObject = project.path
-                submenu.addItem(removeItem)
-
                 projectItem.submenu = submenu
                 menu.addItem(projectItem)
             }
@@ -371,6 +404,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        // Only reads config files + uses cached project data (fast)
         readConfig()
         buildMenu()
         updateIcon()
@@ -409,24 +443,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               let index = knownProjects.firstIndex(where: { $0.path == path }) else { return }
 
         knownProjects[index].mode = newMode
-        writeProjectsConfig()
-        buildMenu()
-    }
-
-    @objc func removeProject(_ sender: NSMenuItem) {
-        guard let path = sender.representedObject as? String else { return }
-
-        knownProjects.removeAll { $0.path == path }
-
-        if let data = FileManager.default.contents(atPath: knownProjectsPath),
-           var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            json.removeValue(forKey: path)
-            if let updated = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted),
-               let str = String(data: updated, encoding: .utf8) {
-                try? str.write(toFile: knownProjectsPath, atomically: true, encoding: .utf8)
-            }
-        }
-
         writeProjectsConfig()
         buildMenu()
     }
