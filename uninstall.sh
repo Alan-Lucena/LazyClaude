@@ -17,6 +17,8 @@ rm -f "$HOOKS_DIR/lazy-claude"
 rm -f "$HOOKS_DIR/autoaccept-hook"
 rm -f "$HOOKS_DIR/.lazyclaude"
 rm -f "$HOOKS_DIR/.lazyclaude-response"
+rm -f "$HOOKS_DIR/.lazyclaude-projects"
+rm -f "$HOOKS_DIR/.lazyclaude-known-projects"
 
 echo ""
 echo "==> LazyClaude uninstalled."

@@ -26,6 +26,7 @@ LazyClaude sits in your menu bar and handles all that for you. One toggle, zero 
 
 - **Safe Mode** — Auto-approves everything *except* plan approvals. You still review the big decisions.
 - **YOLO Mode** — Auto-approves absolutely everything. No exceptions. No interruptions. Full send.
+- **Per-Project Control** — Choose which projects get auto-accept. Projects are discovered automatically — no manual setup needed.
 - **Auto-Response** — Automatically answers Claude's questions with your pre-configured text (e.g. *"proceed with the recommended option"*).
 - **Auto-Start** — Launches on login via LaunchAgent. Set it and forget it.
 - **Native macOS** — Pure Swift/Cocoa menu bar app. No Electron, no web views, no bloat.
@@ -88,6 +89,15 @@ A bolt icon in your menu bar shows the current state:
 
 Click the icon to toggle, switch modes, and configure auto-response.
 
+### Per-Project Control
+
+Working with multiple VS Code windows? Each project can have its own auto-accept mode. Projects appear automatically in the menu after Claude Code runs in them — just open the submenu and pick a mode:
+
+- **Global default** — Inherits from the global toggle above
+- **Safe / YOLO / Off** — Overrides the global setting for that project only
+
+This means you can keep the global toggle OFF and only enable auto-accept for specific projects, or vice versa.
+
 ## How It Works
 
 LazyClaude hooks into Claude Code's [PermissionRequest](https://docs.anthropic.com/en/docs/claude-code/hooks) system. When Claude asks for permission, the hook script checks your configuration and responds automatically — no UI interaction needed.
@@ -96,8 +106,10 @@ LazyClaude hooks into Claude Code's [PermissionRequest](https://docs.anthropic.c
 ~/.claude/hooks/
   autoaccept-hook          # Python hook — intercepts and auto-approves requests
   lazy-claude              # Swift binary — menu bar app
-  .lazyclaude              # Config — current mode (safe/yolo), absent = OFF
+  .lazyclaude              # Config — global mode (safe/yolo), absent = OFF
   .lazyclaude-response     # Config — auto-response text, absent = OFF
+  .lazyclaude-projects     # Config — per-project mode overrides (JSON)
+  .lazyclaude-known-projects  # Auto-discovered projects (written by hook)
 
 ~/Library/LaunchAgents/
   com.lazy-claude.menubar.plist   # Starts on login

@@ -80,6 +80,14 @@ class ToggleMenuItem: NSView {
     }
 }
 
+// MARK: - Project info
+struct ProjectInfo {
+    var name: String
+    var path: String
+    var lastSeen: Date
+    var mode: String  // "global", "safe", "yolo", "off"
+}
+
 // MARK: - App Delegate
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
@@ -92,8 +100,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var safeItem: NSMenuItem!
     var yoloItem: NSMenuItem!
     var responseTextItem: NSMenuItem!
+    var knownProjects: [ProjectInfo] = []
     let configPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude"
     let responsePath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-response"
+    let projectsConfigPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-projects"
+    let knownProjectsPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-known-projects"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         readConfig()
@@ -121,6 +132,132 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             isAutoResponse = false
             responseText = ""
+        }
+
+        readProjectsConfig()
+    }
+
+    func readProjectsConfig() {
+        knownProjects = []
+
+        // Read hook-discovered projects
+        var known: [String: [String: Any]] = [:]
+        if let data = FileManager.default.contents(atPath: knownProjectsPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] {
+            known = json
+        }
+
+        // Read per-project overrides
+        var overrides: [String: String] = [:]
+        if let data = FileManager.default.contents(atPath: projectsConfigPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+            overrides = json
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        for (path, info) in known {
+            let name = info["name"] as? String ?? (path as NSString).lastPathComponent
+            let lastSeenStr = info["last_seen"] as? String ?? ""
+            let lastSeen = formatter.date(from: lastSeenStr) ?? Date.distantPast
+            let mode = overrides[path] ?? "global"
+
+            knownProjects.append(ProjectInfo(name: name, path: path, lastSeen: lastSeen, mode: mode))
+        }
+
+        for (path, mode) in overrides {
+            if !knownProjects.contains(where: { $0.path == path }) {
+                knownProjects.append(ProjectInfo(
+                    name: (path as NSString).lastPathComponent,
+                    path: path,
+                    lastSeen: Date.distantPast,
+                    mode: mode
+                ))
+            }
+        }
+
+        // Discover projects from ~/.claude/projects/ session directories
+        discoverSessionProjects(overrides: overrides)
+
+        knownProjects.sort { $0.lastSeen > $1.lastSeen }
+    }
+
+    func discoverSessionProjects(overrides: [String: String]) {
+        let sessionDir = NSHomeDirectory() + "/.claude/projects"
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: sessionDir) else { return }
+
+        for entry in entries {
+            let entryPath = sessionDir + "/" + entry
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: entryPath, isDirectory: &isDir),
+                  isDir.boolValue else { continue }
+
+            // Skip generic entries (root, home, etc.)
+            let dashCount = entry.filter({ $0 == "-" }).count
+            guard dashCount >= 3 else { continue }
+
+            // Find a .jsonl transcript to extract the real cwd
+            guard let files = try? FileManager.default.contentsOfDirectory(atPath: entryPath) else { continue }
+            let jsonlFiles = files.filter { $0.hasSuffix(".jsonl") }
+            guard let firstFile = jsonlFiles.first else { continue }
+
+            let filePath = entryPath + "/" + firstFile
+            guard let data = FileManager.default.contents(atPath: filePath),
+                  let content = String(data: data, encoding: .utf8) else { continue }
+
+            // Read up to 10 lines looking for a "cwd" field
+            var projectPath: String?
+            for line in content.components(separatedBy: .newlines).prefix(10) {
+                guard let lineData = line.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      let cwd = json["cwd"] as? String else { continue }
+                projectPath = cwd
+                break
+            }
+
+            guard let path = projectPath,
+                  FileManager.default.fileExists(atPath: path),
+                  !knownProjects.contains(where: { $0.path == path }) else { continue }
+
+            // Get modification date of the transcript as last_seen
+            let attrs = try? FileManager.default.attributesOfItem(atPath: filePath)
+            let lastSeen = attrs?[.modificationDate] as? Date ?? Date.distantPast
+            let mode = overrides[path] ?? "global"
+
+            knownProjects.append(ProjectInfo(
+                name: (path as NSString).lastPathComponent,
+                path: path,
+                lastSeen: lastSeen,
+                mode: mode
+            ))
+        }
+    }
+
+    func writeProjectsConfig() {
+        var overrides: [String: String] = [:]
+        for project in knownProjects {
+            if project.mode != "global" {
+                overrides[project.path] = project.mode
+            }
+        }
+
+        if overrides.isEmpty {
+            try? FileManager.default.removeItem(atPath: projectsConfigPath)
+        } else if let data = try? JSONSerialization.data(
+            withJSONObject: overrides,
+            options: [.prettyPrinted, .sortedKeys]
+        ), let str = String(data: data, encoding: .utf8) {
+            try? str.write(toFile: projectsConfigPath, atomically: true, encoding: .utf8)
+        }
+    }
+
+    func projectModeLabel(_ mode: String) -> String {
+        switch mode {
+        case "safe": return "[Safe]"
+        case "yolo": return "[YOLO]"
+        case "off":  return "[Off]"
+        default:     return "[Global]"
         }
     }
 
@@ -156,6 +293,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         yoloItem.target = self
         menu.addItem(yoloItem)
 
+        // Projects section
+        if !knownProjects.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+
+            let projectsHeader = NSMenuItem(title: "Projects", action: nil, keyEquivalent: "")
+            projectsHeader.isEnabled = false
+            menu.addItem(projectsHeader)
+
+            for project in knownProjects {
+                let modeLabel = projectModeLabel(project.mode)
+                let title = "  \(project.name)  \(modeLabel)"
+
+                let projectItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                projectItem.toolTip = project.path
+
+                let submenu = NSMenu()
+                let modes: [(String, String)] = [
+                    ("global", "Global default"),
+                    ("safe", "Safe mode"),
+                    ("yolo", "YOLO mode"),
+                    ("off", "Off")
+                ]
+
+                for (modeValue, modeTitle) in modes {
+                    let modeItem = NSMenuItem(
+                        title: modeTitle,
+                        action: #selector(setProjectMode(_:)),
+                        keyEquivalent: ""
+                    )
+                    modeItem.target = self
+                    modeItem.representedObject = ["path": project.path, "mode": modeValue]
+                    modeItem.state = (project.mode == modeValue) ? .on : .off
+                    submenu.addItem(modeItem)
+                }
+
+                submenu.addItem(NSMenuItem.separator())
+
+                let removeItem = NSMenuItem(
+                    title: "Remove from list",
+                    action: #selector(removeProject(_:)),
+                    keyEquivalent: ""
+                )
+                removeItem.target = self
+                removeItem.representedObject = project.path
+                submenu.addItem(removeItem)
+
+                projectItem.submenu = submenu
+                menu.addItem(projectItem)
+            }
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         // Auto-response toggle
@@ -184,9 +372,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         readConfig()
-        toggleView?.update(isOn: isEnabled)
-        responseToggleView?.update(isOn: isAutoResponse)
-        updateModeItems()
+        buildMenu()
         updateIcon()
     }
 
@@ -214,6 +400,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if isEnabled { writeConfig() }
         updateModeItems()
         updateIcon()
+    }
+
+    @objc func setProjectMode(_ sender: NSMenuItem) {
+        guard let info = sender.representedObject as? [String: String],
+              let path = info["path"],
+              let newMode = info["mode"],
+              let index = knownProjects.firstIndex(where: { $0.path == path }) else { return }
+
+        knownProjects[index].mode = newMode
+        writeProjectsConfig()
+        buildMenu()
+    }
+
+    @objc func removeProject(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+
+        knownProjects.removeAll { $0.path == path }
+
+        if let data = FileManager.default.contents(atPath: knownProjectsPath),
+           var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            json.removeValue(forKey: path)
+            if let updated = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted),
+               let str = String(data: updated, encoding: .utf8) {
+                try? str.write(toFile: knownProjectsPath, atomically: true, encoding: .utf8)
+            }
+        }
+
+        writeProjectsConfig()
+        buildMenu()
     }
 
     func setAutoResponse(_ on: Bool) {

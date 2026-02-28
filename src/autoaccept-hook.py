@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-import sys, json, os
+import sys, json, os, datetime
 
 CONFIG = os.path.expanduser("~/.claude/hooks/.lazyclaude")
 RESPONSE_FILE = os.path.expanduser("~/.claude/hooks/.lazyclaude-response")
+PROJECTS_FILE = os.path.expanduser("~/.claude/hooks/.lazyclaude-projects")
+KNOWN_PROJECTS_FILE = os.path.expanduser("~/.claude/hooks/.lazyclaude-known-projects")
 
 ALLOW = {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}
 
@@ -10,6 +12,23 @@ ALLOW = {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision"
 data = json.loads(sys.stdin.read())
 tool = data.get("tool_name", "")
 tool_input = data.get("tool_input", {})
+cwd = data.get("cwd", "")
+
+# Register discovered project
+if cwd:
+    try:
+        known = {}
+        if os.path.exists(KNOWN_PROJECTS_FILE):
+            with open(KNOWN_PROJECTS_FILE) as f:
+                known = json.load(f)
+        known[cwd] = {
+            "name": os.path.basename(cwd.rstrip("/")) or cwd,
+            "last_seen": datetime.datetime.now().isoformat()
+        }
+        with open(KNOWN_PROJECTS_FILE, "w") as f:
+            json.dump(known, f, indent=2)
+    except Exception:
+        pass
 
 # Auto-response for AskUserQuestion (independent of auto-accept)
 if tool == "AskUserQuestion" and os.path.exists(RESPONSE_FILE):
@@ -34,11 +53,35 @@ if tool == "AskUserQuestion" and os.path.exists(RESPONSE_FILE):
         print(json.dumps(result))
         sys.exit(0)
 
-# Auto-accept: check config
-if not os.path.exists(CONFIG):
-    sys.exit(0)
+# Determine effective mode: project-specific or global
+mode = None
 
-mode = open(CONFIG).read().strip()
+if cwd:
+    try:
+        if os.path.exists(PROJECTS_FILE):
+            with open(PROJECTS_FILE) as f:
+                projects = json.load(f)
+            check_path = cwd
+            while True:
+                if check_path in projects:
+                    project_mode = projects[check_path]
+                    if project_mode == "off":
+                        sys.exit(0)
+                    elif project_mode in ("safe", "yolo"):
+                        mode = project_mode
+                    break
+                parent = os.path.dirname(check_path)
+                if parent == check_path:
+                    break
+                check_path = parent
+    except Exception:
+        pass
+
+# Fall back to global config
+if mode is None:
+    if not os.path.exists(CONFIG):
+        sys.exit(0)
+    mode = open(CONFIG).read().strip()
 
 # ExitPlanMode protection (safe mode only)
 if mode == "safe" and tool == "ExitPlanMode":
