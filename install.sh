@@ -7,6 +7,9 @@ PLIST_NAME="com.lazy-claude.menubar.plist"
 
 echo "==> Installing LazyClaude..."
 
+# Kill existing process if running
+pkill -f "lazy-claude" 2>/dev/null || true
+
 # Create hooks directory
 mkdir -p "$HOOKS_DIR"
 
