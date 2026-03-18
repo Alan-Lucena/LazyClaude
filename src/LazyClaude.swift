@@ -1,4 +1,5 @@
 import Cocoa
+import UserNotifications
 
 // MARK: - Custom drawn toggle (iOS-style with blue/gray)
 class CustomToggle: NSView {
@@ -88,6 +89,33 @@ struct ProjectInfo {
     var mode: String  // "global", "safe", "yolo", "off"
 }
 
+// MARK: - Notification click handler
+class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        // Activate the editor when user clicks the notification
+        let bundleIds = ["com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.todesktop.230313mzl4w4u92"]
+        for bundleId in bundleIds {
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+                app.activate()
+                break
+            }
+        }
+        completionHandler()
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+}
+
 // MARK: - App Delegate
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
@@ -107,6 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var cachedOpenNames: Set<String> = []
     var refreshTimer: Timer?
     var notificationTimer: Timer?
+    let notificationDelegate = NotificationDelegate()
     let pendingNotificationPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-pending-notification"
     let configPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude"
     let responsePath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-response"
@@ -122,6 +151,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         updateIcon()
         buildMenu()
+
+        // Setup notification center for clickable notifications
+        let center = UNUserNotificationCenter.current()
+        center.delegate = notificationDelegate
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
+        // Register action category with "Ver" button
+        let openAction = UNNotificationAction(
+            identifier: "OPEN_EDITOR",
+            title: "Abrir Editor",
+            options: [.foreground]
+        )
+        let category = UNNotificationCategory(
+            identifier: "TASK_DONE",
+            actions: [openAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        center.setNotificationCategories([category])
 
         // Refresh open windows + session cache every 5 seconds in background
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
@@ -147,35 +195,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let message = json["message"] ?? "Task finished"
         let projectName = json["projectName"] ?? ""
 
-        // Show notification via osascript process
-        let notifProc = Process()
-        notifProc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        notifProc.arguments = ["-e", "display notification \"\(message)\" with title \"\(title)\" sound name \"Ping\""]
-        try? notifProc.run()
+        // Show clickable notification via UNUserNotificationCenter
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = message
+        content.sound = .default
+        content.categoryIdentifier = "TASK_DONE"
 
-        // Activate the editor window after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            let activateProc = Process()
-            activateProc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            activateProc.arguments = [
-                "-e", "tell application \"System Events\"",
-                "-e", "repeat with procName in {\"Code\", \"Code - Insiders\", \"Cursor\"}",
-                "-e", "if exists (process procName) then",
-                "-e", "tell process procName",
-                "-e", "repeat with w in every window",
-                "-e", "if name of w contains \"\(projectName)\" then",
-                "-e", "set frontmost to true",
-                "-e", "perform action \"AXRaise\" of w",
-                "-e", "return",
-                "-e", "end if",
-                "-e", "end repeat",
-                "-e", "end tell",
-                "-e", "end if",
-                "-e", "end repeat",
-                "-e", "end tell"
-            ]
-            try? activateProc.run()
-        }
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
 
