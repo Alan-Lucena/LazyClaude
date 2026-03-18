@@ -27,26 +27,7 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 # Compile binary
-swiftc -O -o "$APP_DIR/Contents/MacOS/lazy-claude" "$(dirname "$0")/src/LazyClaude.swift" -framework Cocoa
-
-# Bundle terminal-notifier for clickable notifications
-if command -v terminal-notifier &>/dev/null; then
-    TN_APP="$(dirname "$(dirname "$(which terminal-notifier)")")"
-    if [ -d "$TN_APP/terminal-notifier.app" ]; then
-        echo "==> Bundling terminal-notifier..."
-        cp -R "$TN_APP/terminal-notifier.app" "$APP_DIR/Contents/Resources/terminal-notifier.app"
-    fi
-elif command -v brew &>/dev/null; then
-    echo "==> Installing terminal-notifier (for clickable notifications)..."
-    brew install terminal-notifier
-    TN_APP="$(dirname "$(dirname "$(which terminal-notifier)")")"
-    if [ -d "$TN_APP/terminal-notifier.app" ]; then
-        cp -R "$TN_APP/terminal-notifier.app" "$APP_DIR/Contents/Resources/terminal-notifier.app"
-    fi
-else
-    echo "==> Note: Install terminal-notifier for clickable notifications:"
-    echo "    brew install terminal-notifier"
-fi
+swiftc -O -o "$APP_DIR/Contents/MacOS/lazy-claude" "$(dirname "$0")/src/LazyClaude.swift" -framework Cocoa -framework UserNotifications
 
 # Sign the app bundle
 codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || true
