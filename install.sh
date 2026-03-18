@@ -13,10 +13,11 @@ pkill -f "lazy-claude" 2>/dev/null || true
 # Create hooks directory
 mkdir -p "$HOOKS_DIR"
 
-# Install auto-accept hook
-echo "==> Installing auto-accept hook..."
+# Install hooks
+echo "==> Installing hooks..."
 cp "$(dirname "$0")/src/autoaccept-hook.py" "$HOOKS_DIR/autoaccept-hook"
-chmod +x "$HOOKS_DIR/autoaccept-hook"
+cp "$(dirname "$0")/src/notify-hook.py" "$HOOKS_DIR/notify-hook"
+chmod +x "$HOOKS_DIR/autoaccept-hook" "$HOOKS_DIR/notify-hook"
 
 # Compile menu bar app
 echo "==> Compiling menu bar app..."
@@ -68,6 +69,28 @@ else
             "type": "command",
             "command": "${HOOKS_DIR}/autoaccept-hook",
             "timeout": 130
+          }
+        ]
+      }
+    ]
+EOF
+fi
+
+# Check if Stop hook already exists
+if grep -q '"Stop"' "$SETTINGS_FILE" 2>/dev/null; then
+    echo "==> Stop hook already exists in $SETTINGS_FILE"
+    echo "    Please verify it points to: $HOOKS_DIR/notify-hook"
+else
+    echo ""
+    echo "==> Also add this under \"hooks\" for notifications:"
+    echo ""
+    cat <<EOF
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${HOOKS_DIR}/notify-hook"
           }
         ]
       }

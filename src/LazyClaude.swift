@@ -94,9 +94,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var isEnabled = false
     var currentMode = "safe"
     var isAutoResponse = false
+    var isNotificationsEnabled = false
     var responseText = ""
     var toggleView: ToggleMenuItem?
     var responseToggleView: ToggleMenuItem?
+    var notifyToggleView: ToggleMenuItem?
     var safeItem: NSMenuItem!
     var yoloItem: NSMenuItem!
     var responseTextItem: NSMenuItem!
@@ -106,6 +108,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var refreshTimer: Timer?
     let configPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude"
     let responsePath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-response"
+    let notifyPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-notify"
     let projectsConfigPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-projects"
     let knownProjectsPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-known-projects"
 
@@ -155,6 +158,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             isAutoResponse = false
             responseText = ""
+        }
+
+        if FileManager.default.fileExists(atPath: notifyPath),
+           let content = try? String(contentsOfFile: notifyPath, encoding: .utf8) {
+            isNotificationsEnabled = content.trimmingCharacters(in: .whitespacesAndNewlines) == "on"
+        } else {
+            isNotificationsEnabled = false
         }
 
         readProjectsConfig()
@@ -392,6 +402,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         responseTextItem.target = self
         menu.addItem(responseTextItem)
 
+        // Notifications toggle
+        let notifyItem = NSMenuItem()
+        notifyToggleView = ToggleMenuItem(title: "Notifications", isOn: isNotificationsEnabled) { [weak self] isOn in
+            self?.setNotifications(isOn)
+        }
+        notifyItem.view = notifyToggleView
+        menu.addItem(notifyItem)
+
         updateModeItems()
 
         menu.addItem(NSMenuItem.separator())
@@ -494,6 +512,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             responseToggleView?.update(isOn: isAutoResponse)
             updateModeItems()
+        }
+    }
+
+    func setNotifications(_ on: Bool) {
+        isNotificationsEnabled = on
+        if on {
+            try? "on".write(toFile: notifyPath, atomically: true, encoding: .utf8)
+        } else {
+            try? FileManager.default.removeItem(atPath: notifyPath)
         }
     }
 
