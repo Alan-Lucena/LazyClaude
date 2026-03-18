@@ -106,6 +106,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var cachedSessionProjects: [(String, String)] = []  // (path, name)
     var cachedOpenNames: Set<String> = []
     var refreshTimer: Timer?
+    var notificationTimer: Timer?
+    let pendingNotificationPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-pending-notification"
     let configPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude"
     let responsePath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-response"
     let notifyPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-notify"
@@ -125,7 +127,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.refreshProjectsInBackground()
         }
+
+        // Check for pending notifications every second
+        notificationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkPendingNotification()
+        }
+
     }
+
+    func checkPendingNotification() {
+        guard FileManager.default.fileExists(atPath: pendingNotificationPath),
+              let data = FileManager.default.contents(atPath: pendingNotificationPath),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return }
+
+        // Remove file immediately to avoid re-sending
+        try? FileManager.default.removeItem(atPath: pendingNotificationPath)
+
+        let title = json["title"] ?? "LazyClaude"
+        let message = json["message"] ?? "Task finished"
+        let projectName = json["projectName"] ?? ""
+
+        // Show notification via osascript process
+        let notifProc = Process()
+        notifProc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        notifProc.arguments = ["-e", "display notification \"\(message)\" with title \"\(title)\" sound name \"Ping\""]
+        try? notifProc.run()
+
+        // Activate the editor window after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            let activateProc = Process()
+            activateProc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            activateProc.arguments = [
+                "-e", "tell application \"System Events\"",
+                "-e", "repeat with procName in {\"Code\", \"Code - Insiders\", \"Cursor\"}",
+                "-e", "if exists (process procName) then",
+                "-e", "tell process procName",
+                "-e", "repeat with w in every window",
+                "-e", "if name of w contains \"\(projectName)\" then",
+                "-e", "set frontmost to true",
+                "-e", "perform action \"AXRaise\" of w",
+                "-e", "return",
+                "-e", "end if",
+                "-e", "end repeat",
+                "-e", "end tell",
+                "-e", "end if",
+                "-e", "end repeat",
+                "-e", "end tell"
+            ]
+            try? activateProc.run()
+        }
+    }
+
 
     func refreshProjectsInBackground() {
         // File I/O in background

@@ -19,9 +19,57 @@ cp "$(dirname "$0")/src/autoaccept-hook.py" "$HOOKS_DIR/autoaccept-hook"
 cp "$(dirname "$0")/src/notify-hook.py" "$HOOKS_DIR/notify-hook"
 chmod +x "$HOOKS_DIR/autoaccept-hook" "$HOOKS_DIR/notify-hook"
 
-# Compile menu bar app
-echo "==> Compiling menu bar app..."
-swiftc -O -o "$HOOKS_DIR/lazy-claude" "$(dirname "$0")/src/LazyClaude.swift" -framework Cocoa
+# Build menu bar app as .app bundle (required for notifications)
+echo "==> Building menu bar app..."
+APP_DIR="$HOOKS_DIR/LazyClaude.app"
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS"
+mkdir -p "$APP_DIR/Contents/Resources"
+
+# Compile binary
+swiftc -O -o "$APP_DIR/Contents/MacOS/lazy-claude" "$(dirname "$0")/src/LazyClaude.swift" -framework Cocoa
+
+# Bundle terminal-notifier for clickable notifications
+if command -v terminal-notifier &>/dev/null; then
+    TN_APP="$(dirname "$(dirname "$(which terminal-notifier)")")"
+    if [ -d "$TN_APP/terminal-notifier.app" ]; then
+        echo "==> Bundling terminal-notifier..."
+        cp -R "$TN_APP/terminal-notifier.app" "$APP_DIR/Contents/Resources/terminal-notifier.app"
+    fi
+elif command -v brew &>/dev/null; then
+    echo "==> Installing terminal-notifier (for clickable notifications)..."
+    brew install terminal-notifier
+    TN_APP="$(dirname "$(dirname "$(which terminal-notifier)")")"
+    if [ -d "$TN_APP/terminal-notifier.app" ]; then
+        cp -R "$TN_APP/terminal-notifier.app" "$APP_DIR/Contents/Resources/terminal-notifier.app"
+    fi
+else
+    echo "==> Note: Install terminal-notifier for clickable notifications:"
+    echo "    brew install terminal-notifier"
+fi
+
+# Sign the app bundle
+codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || true
+
+# Create Info.plist with bundle ID (used by -sender for notification branding)
+cat > "$APP_DIR/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.lazyclaude.menubar</string>
+    <key>CFBundleName</key>
+    <string>LazyClaude</string>
+    <key>CFBundleExecutable</key>
+    <string>lazy-claude</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>
+PLIST
 
 # Install LaunchAgent
 echo "==> Installing LaunchAgent..."
@@ -35,7 +83,9 @@ cat > "$LAUNCH_AGENTS_DIR/$PLIST_NAME" <<EOF
     <string>com.lazy-claude.menubar</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${HOOKS_DIR}/lazy-claude</string>
+        <string>open</string>
+        <string>-a</string>
+        <string>${HOOKS_DIR}/LazyClaude.app</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -108,8 +158,9 @@ echo ""
 echo "==> LazyClaude installed successfully!"
 echo ""
 echo "   - Auto-accept hook: $HOOKS_DIR/autoaccept-hook"
-echo "   - Menu bar app:     $HOOKS_DIR/lazy-claude"
+echo "   - Menu bar app:     $HOOKS_DIR/LazyClaude.app"
 echo "   - Config file:      $HOOKS_DIR/.lazyclaude"
 echo "   - LaunchAgent:      $LAUNCH_AGENTS_DIR/$PLIST_NAME"
 echo ""
 echo "   You should see a bolt icon in your menu bar."
+echo "   macOS will ask for notification permissions on first launch."
