@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, json, os
+import sys, json, os, time
 
 NOTIFY_CONFIG = os.path.expanduser("~/.claude/hooks/.lazyclaude-notify")
 PENDING_PATH = os.path.expanduser("~/.claude/hooks/.lazyclaude-pending-notification")
@@ -25,6 +25,20 @@ elif stop_reason == "max_tokens":
     message = f"Hit token limit in {project_name}"
 else:
     message = f"Claude stopped in {project_name} ({stop_reason})"
+
+# Debounce: skip if a notification was sent less than 5 seconds ago
+DEBOUNCE_PATH = os.path.expanduser("~/.claude/hooks/.lazyclaude-notify-last")
+if os.path.exists(DEBOUNCE_PATH):
+    try:
+        age = time.time() - os.path.getmtime(DEBOUNCE_PATH)
+        if age < 5:
+            sys.exit(0)
+    except OSError:
+        pass
+
+# Touch debounce file
+with open(DEBOUNCE_PATH, "w") as f:
+    f.write("")
 
 # Write pending notification file for the Swift app to pick up
 notification = {

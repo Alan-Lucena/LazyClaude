@@ -137,6 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var notificationTimer: Timer?
     let notificationDelegate = NotificationDelegate()
     let pendingNotificationPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-pending-notification"
+    var lastNotificationTime: Date = .distantPast
     let configPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude"
     let responsePath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-response"
     let notifyPath = NSHomeDirectory() + "/.claude/hooks/.lazyclaude-notify"
@@ -171,6 +172,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         center.setNotificationCategories([category])
 
+        // When app becomes active (from "Abrir Editor" button), activate editor
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self,
+                  Date().timeIntervalSince(self.lastNotificationTime) < 30 else { return }
+            self.lastNotificationTime = .distantPast
+            let bundleIds = ["com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.todesktop.230313mzl4w4u92"]
+            for bundleId in bundleIds {
+                if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+                    app.activate()
+                    break
+                }
+            }
+        }
+
         // Refresh open windows + session cache every 5 seconds in background
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.refreshProjectsInBackground()
@@ -194,6 +213,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let title = json["title"] ?? "LazyClaude"
         let message = json["message"] ?? "Task finished"
         let projectName = json["projectName"] ?? ""
+
+        lastNotificationTime = Date()
 
         // Show clickable notification via UNUserNotificationCenter
         let content = UNMutableNotificationContent()
