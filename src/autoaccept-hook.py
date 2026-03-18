@@ -30,29 +30,6 @@ if cwd:
     except Exception:
         pass
 
-# Auto-response for AskUserQuestion (independent of auto-accept)
-if tool == "AskUserQuestion" and os.path.exists(RESPONSE_FILE):
-    response_text = open(RESPONSE_FILE).read().strip()
-    if response_text:
-        questions = tool_input.get("questions", [])
-        answers = {}
-        for q in questions:
-            answers[q.get("question", "")] = response_text
-        result = {
-            "hookSpecificOutput": {
-                "hookEventName": "PermissionRequest",
-                "decision": {
-                    "behavior": "allow",
-                    "updatedInput": {
-                        "questions": questions,
-                        "answers": answers
-                    }
-                }
-            }
-        }
-        print(json.dumps(result))
-        sys.exit(0)
-
 # Determine effective mode: project-specific or global
 mode = None
 
@@ -83,9 +60,37 @@ if mode is None:
         sys.exit(0)
     mode = open(CONFIG).read().strip()
 
-# ExitPlanMode protection (safe mode only)
-if mode == "safe" and tool == "ExitPlanMode":
-    sys.exit(0)
+# Safe mode protections
+if mode == "safe":
+    # Don't auto-exit plan mode
+    if tool == "ExitPlanMode":
+        sys.exit(0)
+    # Don't auto-respond to AskUserQuestion — let the user answer
+    if tool == "AskUserQuestion":
+        sys.exit(0)
+
+# Auto-response for AskUserQuestion (yolo mode only)
+if tool == "AskUserQuestion" and os.path.exists(RESPONSE_FILE):
+    response_text = open(RESPONSE_FILE).read().strip()
+    if response_text:
+        questions = tool_input.get("questions", [])
+        answers = {}
+        for q in questions:
+            answers[q.get("question", "")] = response_text
+        result = {
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {
+                    "behavior": "allow",
+                    "updatedInput": {
+                        "questions": questions,
+                        "answers": answers
+                    }
+                }
+            }
+        }
+        print(json.dumps(result))
+        sys.exit(0)
 
 # Allow everything else
 print(json.dumps(ALLOW))
