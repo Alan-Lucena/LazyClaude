@@ -32,13 +32,41 @@ elif stop_reason == "max_tokens":
 else:
     message = f"Claude stopped in {project_name} ({stop_reason})"
 
-# Send Windows toast notification via PowerShell
+# Detect which editor has this project open
+def detect_editor():
+    """Detect if project is open in VS Code, Code Insiders, or Cursor."""
+    for exe_name, display_name in [("Cursor", "Cursor"), ("Code", "Code"), ("Code - Insiders", "Code - Insiders")]:
+        check = f'''
+        $procs = Get-Process -Name "{exe_name}" -ErrorAction SilentlyContinue
+        if ($procs) {{
+            foreach ($p in $procs) {{
+                if ($p.MainWindowTitle -like "*{project_name}*") {{
+                    Write-Output "{exe_name}"
+                    exit
+                }}
+            }}
+        }}
+        '''
+        try:
+            result = subprocess.run(
+                ["powershell", "-ExecutionPolicy", "Bypass", "-Command", check],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.stdout.strip() == exe_name:
+                return exe_name
+        except Exception:
+            continue
+    return "Code"
+
+editor_process = detect_editor()
+
+# Send Windows toast notification via PowerShell with click-to-focus
 ps_script = f'''
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime] | Out-Null
 
 $template = @"
-<toast duration="short">
+<toast activationType="protocol" launch="" duration="short">
     <visual>
         <binding template="ToastGeneric">
             <text>LazyClaude</text>
@@ -52,16 +80,39 @@ $template = @"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($template)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+
+# Register click handler to focus the editor window
+$activated = Register-ObjectEvent -InputObject $toast -EventName Activated -Action {{
+    $procs = Get-Process -Name "{editor_process}" -ErrorAction SilentlyContinue
+    foreach ($p in $procs) {{
+        if ($p.MainWindowTitle -like "*{project_name}*") {{
+            Add-Type @"
+            using System;
+            using System.Runtime.InteropServices;
+            public class Win32 {{
+                [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+                [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+            }}
+"@
+            [Win32]::ShowWindow($p.MainWindowHandle, 9)
+            [Win32]::SetForegroundWindow($p.MainWindowHandle)
+            break
+        }}
+    }}
+}}
+
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("LazyClaude").Show($toast)
+Start-Sleep -Seconds 10
+Unregister-Event -SourceIdentifier $activated.Name
 '''
 
 try:
-    subprocess.run(
+    subprocess.Popen(
         ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
-        capture_output=True, timeout=10
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
 except Exception:
-    # Fallback: simple balloon tip
+    # Fallback: simple balloon tip (not clickable)
     fallback = f'''
     Add-Type -AssemblyName System.Windows.Forms
     $notify = New-Object System.Windows.Forms.NotifyIcon

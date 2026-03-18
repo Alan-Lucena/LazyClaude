@@ -13,6 +13,17 @@ pkill -f "lazy-claude" 2>/dev/null || true
 # Create hooks directory
 mkdir -p "$HOOKS_DIR"
 
+# Install terminal-notifier for clickable notifications
+if ! command -v terminal-notifier &>/dev/null; then
+    if command -v brew &>/dev/null; then
+        echo "==> Installing terminal-notifier (for clickable notifications)..."
+        brew install terminal-notifier
+    else
+        echo "==> Note: Install terminal-notifier for clickable notifications:"
+        echo "    brew install terminal-notifier"
+    fi
+fi
+
 # Install hooks
 echo "==> Installing hooks..."
 cp "$(dirname "$0")/src/autoaccept-hook.py" "$HOOKS_DIR/autoaccept-hook"
