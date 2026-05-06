@@ -10,9 +10,9 @@ $StartupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 Write-Host "==> Installing LazyClaude for Windows..."
 
 # Kill existing process
-Get-Process -Name "python*" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*tray.py*" } |
-    Stop-Process -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*tray.py*" -or $_.CommandLine -like "*lazy-claude-tray*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 # Create hooks directory
 New-Item -ItemType Directory -Force -Path $HooksDir | Out-Null
@@ -42,7 +42,8 @@ Write-Host "==> Creating startup shortcut..."
 $ShortcutPath = "$StartupDir\LazyClaude.lnk"
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
-$Shortcut.TargetPath = (Get-Command pythonw -ErrorAction SilentlyContinue).Source ?? (Get-Command python).Source
+$pythonw = Get-Command pythonw -ErrorAction SilentlyContinue
+if ($pythonw) { $Shortcut.TargetPath = $pythonw.Source } else { $Shortcut.TargetPath = (Get-Command python).Source }
 $Shortcut.Arguments = "`"$HooksDir\lazy-claude-tray.py`""
 $Shortcut.WindowStyle = 7  # Minimized
 $Shortcut.Description = "LazyClaude System Tray"

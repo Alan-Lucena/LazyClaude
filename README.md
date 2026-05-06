@@ -88,7 +88,7 @@ After installing, add the hooks to `~/.claude/settings.json`:
 }
 ```
 
-> **Windows:** Replace the commands with `python "~/.claude/hooks/autoaccept-hook"` and `python "~/.claude/hooks/notify-hook"`.
+> **Windows:** Replace the commands with `python "%USERPROFILE%\.claude\hooks\autoaccept-hook"` and `python "%USERPROFILE%\.claude\hooks\notify-hook"`. The `~` shorthand is not expanded by `cmd.exe`.
 
 > **Tip:** Add `"defaultMode": "acceptEdits"` inside `"permissions"` to also auto-accept file edits natively.
 

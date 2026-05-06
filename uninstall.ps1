@@ -7,9 +7,9 @@ $StartupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 Write-Host "==> Uninstalling LazyClaude..."
 
 # Kill tray app
-Get-Process -Name "python*" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*tray.py*" } |
-    Stop-Process -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*tray.py*" -or $_.CommandLine -like "*lazy-claude-tray*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 # Remove files
 $files = @(

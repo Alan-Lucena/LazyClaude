@@ -22,7 +22,7 @@ if cwd:
             with open(KNOWN_PROJECTS_FILE) as f:
                 known = json.load(f)
         known[cwd] = {
-            "name": os.path.basename(cwd.rstrip("/")) or cwd,
+            "name": os.path.basename(cwd.rstrip("/\\")) or cwd,
             "last_seen": datetime.datetime.now().isoformat()
         }
         with open(KNOWN_PROJECTS_FILE, "w") as f:
