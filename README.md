@@ -56,6 +56,21 @@ cd LazyClaude
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
+The installer asks whether to start LazyClaude automatically on boot. Auto-start is opt-in: answer `y` to create the startup shortcut, or skip it and launch the tray app manually.
+
+#### Antivirus false positive (Norton `IDP.ALEXA.54` and similar)
+
+Norton and some other antivirus engines may flag `install.ps1` with a heuristic detection such as `IDP.ALEXA.54`. This is a **false positive**, not malware. The script is plain, readable PowerShell: it copies the hooks into `~/.claude/hooks`, optionally creates a startup shortcut, and launches a Python system tray app. Heuristic engines flag this generic pattern (PowerShell that copies files and can set up auto-start) without inspecting intent. The detection cannot be fully removed without a paid Authenticode code-signing certificate.
+
+To install anyway:
+
+1. **Review the source first.** Read [install.ps1](install.ps1), [src/windows/tray.py](src/windows/tray.py), and [src/autoaccept-hook.py](src/autoaccept-hook.py) so you trust what you run.
+2. **Restore the file** in Norton: open the **Security History** / quarantine, find the `install.ps1` entry, and choose **Restore** (and **Exclude from future scans** if offered).
+3. **Add an exclusion** so it does not get re-quarantined: Norton Settings &rarr; **Antivirus** &rarr; **Scans and Risks** &rarr; **Items to Exclude from Scans** (and **... from Auto-Protect, SONAR and Download Intelligence Detection**) &rarr; add the LazyClaude folder.
+4. Re-run the install command.
+
+Other antivirus products have equivalent restore / exclusion flows.
+
 ### Hook Configuration
 
 After installing, add the hooks to `~/.claude/settings.json`:

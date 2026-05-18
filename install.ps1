@@ -37,17 +37,25 @@ try {
     pip install pystray Pillow --quiet
 }
 
-# Create startup shortcut
-Write-Host "==> Creating startup shortcut..."
+# Create startup shortcut (opt-in)
 $ShortcutPath = "$StartupDir\LazyClaude.lnk"
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut($ShortcutPath)
-$pythonw = Get-Command pythonw -ErrorAction SilentlyContinue
-if ($pythonw) { $Shortcut.TargetPath = $pythonw.Source } else { $Shortcut.TargetPath = (Get-Command python).Source }
-$Shortcut.Arguments = "`"$HooksDir\lazy-claude-tray.py`""
-$Shortcut.WindowStyle = 7  # Minimized
-$Shortcut.Description = "LazyClaude System Tray"
-$Shortcut.Save()
+$AutoStart = $false
+Write-Host ""
+$answer = Read-Host "==> Start LazyClaude automatically when Windows boots? [y/N]"
+if ($answer -match '^[yY]') {
+    Write-Host "==> Creating startup shortcut..."
+    $WshShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
+    $pythonw = Get-Command pythonw -ErrorAction SilentlyContinue
+    if ($pythonw) { $Shortcut.TargetPath = $pythonw.Source } else { $Shortcut.TargetPath = (Get-Command python).Source }
+    $Shortcut.Arguments = "`"$HooksDir\lazy-claude-tray.py`""
+    $Shortcut.WindowStyle = 1  # Normal
+    $Shortcut.Description = "LazyClaude System Tray"
+    $Shortcut.Save()
+    $AutoStart = $true
+} else {
+    Write-Host "==> Skipping auto-start. Run the tray app manually or re-run install.ps1 to enable it."
+}
 
 # Configure Claude Code hooks
 $SettingsFile = "$env:USERPROFILE\.claude\settings.json"
@@ -105,7 +113,7 @@ if ($settings.hooks.Stop) {
 # Start tray app
 Write-Host ""
 Write-Host "==> Starting tray app..."
-Start-Process pythonw -ArgumentList "`"$HooksDir\lazy-claude-tray.py`"" -WindowStyle Hidden
+Start-Process pythonw -ArgumentList "`"$HooksDir\lazy-claude-tray.py`""
 
 Write-Host ""
 Write-Host "==> LazyClaude installed successfully!"
@@ -114,6 +122,6 @@ Write-Host "   - Auto-accept hook: $HooksDir\autoaccept-hook"
 Write-Host "   - Notify hook:      $HooksDir\notify-hook"
 Write-Host "   - Tray app:         $HooksDir\lazy-claude-tray.py"
 Write-Host "   - Config file:      $HooksDir\.lazyclaude"
-Write-Host "   - Startup shortcut: $ShortcutPath"
+if ($AutoStart) { Write-Host "   - Startup shortcut: $ShortcutPath" }
 Write-Host ""
 Write-Host "   You should see a bolt icon in your system tray."
